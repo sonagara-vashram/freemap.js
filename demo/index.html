@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maps</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://server.arcgisonline.com">
+<link rel="preconnect" href="https://mt1.google.com">
+<link rel="preconnect" href="https://nominatim.openstreetmap.org">
+<link rel="preconnect" href="https://router.project-osrm.org">
+<style>
+  html, body { margin: 0; height: 100%; font: 14px/1.4 Roboto, Arial, system-ui, sans-serif; color: #202124; }
+  #map { position: absolute; inset: 0; }
+
+  .panel {
+    position: absolute; z-index: 10; background: #fff; border-radius: 8px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.3);
+  }
+
+  /* Search — pill, top-left */
+  #searchbox { top: 10px; left: 10px; width: min(372px, calc(100vw - 20px)); height: 44px; display: flex; align-items: center; }
+  #go { border: 0; background: none; cursor: pointer; padding: 0 4px 0 12px; height: 100%; display: flex; align-items: center; }
+  #q { flex: 1; border: 0; outline: none; font-size: 15px; height: 100%; color: #202124; background: transparent; min-width: 0; }
+  #q::placeholder { color: #757575; }
+
+  #results { top: 62px; left: 10px; width: min(372px, calc(100vw - 20px)); display: none; max-height: 260px; overflow: auto; }
+  #results div { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #eee; }
+  #results div:hover { background: #f1f3f4; }
+  #results small { color: #5f6368; }
+
+  #status { top: 62px; left: 10px; width: min(372px, calc(100vw - 20px)); padding: 9px 14px; display: none; color: #c5221f; box-sizing: border-box; }
+
+  /* Floating action buttons */
+  .fab {
+    position: absolute; z-index: 10; width: 44px; height: 44px; border: 0; border-radius: 8px;
+    background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.3); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; color: #5f6368; padding: 0;
+  }
+  .fab:hover { background: #f8f9fa; }
+  .fab.active { color: #1a73e8; background: #e8f0fe; }
+
+  /* Directions — top-right */
+  #route { top: 10px; right: 10px; }
+
+  /* My Location + zoom — bottom-right stack */
+  #locate { right: 10px; bottom: 116px; border-radius: 50%; }
+  #map .fm-zoom { top: auto; left: auto; right: 10px; bottom: 36px; box-shadow: 0 1px 4px rgba(0,0,0,.3); }
+  #map .fm-zoom button { color: #5f6368; }
+
+  /* Layer switcher — bottom-left */
+  #layers { left: 10px; bottom: 12px; display: flex; overflow: hidden; }
+  #layers button {
+    border: 0; background: #fff; padding: 9px 18px; cursor: pointer;
+    font-size: 13px; font-weight: 500; color: #5f6368; font-family: inherit;
+  }
+  #layers button + button { border-left: 1px solid #e8eaed; }
+  #layers button.active { color: #1a73e8; background: #e8f0fe; }
+
+  #routecard { bottom: 18px; left: 50%; transform: translateX(-50%); padding: 12px 30px 12px 18px; display: none; }
+  #routecard b { color: #1a73e8; }
+  #routecard .x {
+    position: absolute; top: 3px; right: 4px; border: 0; background: none;
+    font-size: 16px; line-height: 1; cursor: pointer; color: #666; padding: 2px 5px;
+  }
+  #hint { bottom: 18px; left: 50%; transform: translateX(-50%); padding: 10px 16px; display: none; color: #5f6368; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<div class="panel" id="searchbox">
+  <button id="go" type="button" aria-label="Search">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="#5f6368" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+  </button>
+  <input id="q" type="search" placeholder="Search places" aria-label="Search places">
+</div>
+<div class="panel" id="results" role="listbox"></div>
+<div class="panel" id="status" role="status"></div>
+
+<button id="route" class="fab" type="button" aria-label="Directions" aria-pressed="false">
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M21.71 11.29l-9-9a.996.996 0 0 0-1.41 0l-9 9a.996.996 0 0 0 0 1.41l9 9c.39.39 1.02.39 1.41 0l9-9a.996.996 0 0 0 0-1.41zM14 14.5V12h-4v3H8v-4a1 1 0 0 1 1-1h5V7.5l3.5 3.5-3.5 3.5z"/></svg>
+</button>
+
+<button id="locate" class="fab" type="button" aria-label="My location">
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm8.94 3A9 9 0 0 0 13 3.06V1h-2v2.06A9 9 0 0 0 3.06 11H1v2h2.06A9 9 0 0 0 11 20.94V23h2v-2.06A9 9 0 0 0 20.94 13H23v-2h-2.06zM12 19a7 7 0 1 1 0-14 7 7 0 0 1 0 14z"/></svg>
+</button>
+
+<div class="panel" id="layers" role="group" aria-label="Map layers">
+  <button id="layer-map" type="button" aria-pressed="false">Map</button>
+  <button id="layer-sat" type="button" class="active" aria-pressed="true">Satellite</button>
+</div>
+
+<div class="panel" id="routecard" role="status"></div>
+<div class="panel" id="hint">Directions mode: click map to set start point, then destination.</div>
+
+<script src="../freemap.js?v=1.3.0"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  };
+
+  /* Tile sources. Google's tile CDN is what makes this look and load exactly
+     like Google Maps — no key, no account. Heads-up for repo readers: Google's
+     ToS doesn't license third-party tile embedding, so for a fully-clear-rights
+     build swap to OSM for the map layer and Esri World Imagery for satellite
+     (Esri's keyless tiles now stamp an "API KEY REQUIRED" watermark; a free
+     Esri account key removes it). EOX s2cloudless is the keyless-but-blurry
+     satellite fallback: https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2020_3857/default/g/{z}/{y}/{x}.jpg */
+  var G_MAP_URL = 'https://mt1.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}';
+  var G_SAT_URL = 'https://mt1.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}'; // y = hybrid: imagery + place/road/shop labels baked in
+  var G_ATTR = '&copy; Google';
+
+  var map = new FreeMap.Map('#map', {
+    center: [28.6139, 77.2090], // Delhi
+    zoom: 11,
+    tileUrl: G_SAT_URL,
+    attribution: G_ATTR,
+    maxZoom: 20,
+    hash: true // shareable URL: #lat,lng,zoom
+  });
+
+  /* ---------- Layer switch ---------- */
+  function setLayer(sat) {
+    document.getElementById('layer-sat').classList.toggle('active', sat);
+    document.getElementById('layer-map').classList.toggle('active', !sat);
+    document.getElementById('layer-sat').setAttribute('aria-pressed', sat);
+    document.getElementById('layer-map').setAttribute('aria-pressed', !sat);
+    map.setTileUrl(sat ? G_SAT_URL : G_MAP_URL, G_ATTR);
+  }
+  document.getElementById('layer-sat').addEventListener('click', function () { setLayer(true); });
+  document.getElementById('layer-map').addEventListener('click', function () { setLayer(false); });
+
+  /* ---------- Search (Nominatim — keyless) ---------- */
+  function status(msg) {
+    var s = $('status');
+    s.textContent = msg; s.style.display = msg ? 'block' : 'none';
+  }
+
+  function search(q) {
+    q = (q === undefined ? $('q').value : q).trim();
+    if (!q) return;
+    status('Searching…');
+    fetch('https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&q=' + encodeURIComponent(q))
+      .then(function (r) { return r.json(); })
+      .then(function (list) {
+        status('');
+        var box = $('results');
+        box.innerHTML = '';
+        if (!list.length) { box.style.display = 'none'; status('No results for “' + q + '”'); return; }
+        list.forEach(function (item) {
+          var row = document.createElement('div');
+          row.setAttribute('role', 'option');
+          var name = item.display_name.split(', ');
+          row.innerHTML = '<b>' + esc(name[0]) + '</b><br><small>' + esc(name.slice(1).join(', ')) + '</small>';
+          row.addEventListener('click', function () {
+            box.style.display = 'none';
+            // boundingbox = [south, north, west, east]
+            map.fitBounds({
+              south: +item.boundingbox[0], north: +item.boundingbox[1],
+              west: +item.boundingbox[2], east: +item.boundingbox[3]
+            }, { padding: 60, duration: 600, maxZoom: 18 }); // Google Maps POI zoom range; keeps tile count sane
+            map.addMarker([+item.lat, +item.lon], {
+              color: '#1a73e8',
+              title: item.display_name,
+              popup: '<b>' + esc(name[0]) + '</b><br><small>' + esc(name.slice(1).join(', ')) + '</small>'
+            });
+          });
+          box.appendChild(row);
+        });
+        box.style.display = 'block';
+      })
+      .catch(function () { status('Search failed — network error.'); });
+  }
+  /* Live suggestions while typing (debounced — Nominatim fair-use) */
+  var suggestT = null;
+  $('q').addEventListener('input', function () {
+    clearTimeout(suggestT);
+    var q = this.value.trim();
+    if (q.length < 3) { $('results').style.display = 'none'; status(''); return; }
+    suggestT = setTimeout(function () { search(q); }, 250);
+  });
+  $('go').addEventListener('click', function () { clearTimeout(suggestT); search(); });
+  $('q').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { clearTimeout(suggestT); search(); }
+  });
+
+  /* ---------- My Location (browser Geolocation — keyless) ---------- */
+  $('locate').addEventListener('click', function () {
+    if (!navigator.geolocation) { status('Location not supported here.'); return; }
+    status('Locating…');
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      status('');
+      var ll = [pos.coords.latitude, pos.coords.longitude];
+      map.setView(ll, 15, { duration: 600 });
+      map.addMarker(ll, {
+        color: '#188038', title: 'You are here',
+        popup: '<b>You are here</b><br><small>±' + Math.round(pos.coords.accuracy) + ' m</small>'
+      });
+    }, function (err) { status('Location denied or unavailable.'); }, { timeout: 10000 });
+  });
+
+  /* ---------- Directions (OSRM — keyless) ---------- */
+  var routing = false, pts = [], routeLine = null, routeMarkers = [];
+
+  function clearRoute() {
+    pts = [];
+    if (routeLine) { routeLine.remove(); routeLine = null; }
+    routeMarkers.forEach(function (m) { m.remove(); });
+    routeMarkers = [];
+    $('routecard').style.display = 'none';
+  }
+
+  function exitDirections() {
+    routing = false;
+    var b = $('route');
+    b.classList.remove('active');
+    b.setAttribute('aria-pressed', 'false');
+    $('hint').style.display = 'none';
+    clearRoute();
+  }
+
+  $('route').addEventListener('click', function () {
+    if (routing) { exitDirections(); return; }
+    routing = true;
+    this.classList.add('active');
+    this.setAttribute('aria-pressed', 'true');
+    $('hint').textContent = 'Directions mode: click map to set start point, then destination.';
+    $('hint').style.display = 'block';
+  });
+
+  $('routecard').addEventListener('click', function (e) {
+    if (e.target.closest('.x')) exitDirections();
+  });
+
+  map.on('click', function (e) {
+    if (!routing) return;
+    if (pts.length >= 2) clearRoute(); // 3rd click starts a fresh route
+    pts.push(e.latlng);
+    routeMarkers.push(map.addMarker(e.latlng, {
+      color: pts.length === 1 ? '#188038' : '#ea4335',
+      title: pts.length === 1 ? 'Start' : 'Destination'
+    }));
+    if (pts.length < 2) { $('hint').textContent = 'Now click the destination.'; return; }
+    $('hint').style.display = 'none';
+    status('Finding route…');
+    var url = 'https://router.project-osrm.org/route/v1/driving/' +
+      pts[0][1] + ',' + pts[0][0] + ';' + pts[1][1] + ',' + pts[1][0] +
+      '?overview=full&geometries=geojson';
+    fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        status('');
+        if (data.code !== 'Ok' || !data.routes.length) { status('No route found between those points.'); return; }
+        var route = data.routes[0];
+        if (routeLine) routeLine.remove();
+        routeLine = map.addPolyline(route.geometry.coordinates.map(function (c) { return [c[1], c[0]]; }), {
+          color: '#1a73e8', weight: 5
+        });
+        var lats = route.geometry.coordinates.map(function (c) { return c[1]; });
+        var lngs = route.geometry.coordinates.map(function (c) { return c[0]; });
+        map.fitBounds({
+          south: Math.min.apply(null, lats), north: Math.max.apply(null, lats),
+          west: Math.min.apply(null, lngs), east: Math.max.apply(null, lngs)
+        }, { padding: 60, duration: 600, maxZoom: 18 });
+        var card = $('routecard');
+        card.innerHTML = '<button type="button" class="x" aria-label="Clear route">\u00d7</button>' +
+          '🚗 <b>' + (route.distance / 1000).toFixed(1) + ' km</b> · ' +
+          Math.round(route.duration / 60) + ' min';
+        card.style.display = 'block';
+      })
+      .catch(function () { status('Routing failed — network error.'); });
+  });
+})();
+</script>
+</body>
+</html>
